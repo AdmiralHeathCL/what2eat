@@ -59,13 +59,13 @@ def _safe_json_extract(text: str) -> Dict[str, Any]:
     If it fails, fall back to {"reply": text, "query": {}}.
     Also handles the case where the model outputs extra text around the JSON.
     """
-    # Try direct parse
+    # Direct parse
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # Try substring between first '{' and last '}'
+    # Substring between '{' and '}'
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -88,7 +88,7 @@ def _call_openai(api_key: str, messages: List[Dict[str, str]]) -> Dict[str, Any]
     }
 
     payload = {
-        "model": "gpt-4o-mini",  # change this if you want another model
+        "model": "gpt-4o-mini",
         "messages": messages,
         "temperature": 0.7,
     }
@@ -128,14 +128,13 @@ def home(request):
     verify_message = None
     key_status = "no_key"
 
-    # 🔹 Conversation + restaurants are kept as JSON in the form, not in the session
     chat: List[Dict[str, str]] = []
     restaurants: List[Dict[str, Any]] = []
     api_key = ""
     chat_json = "[]"  # default for hidden field
 
     if request.method == "POST":
-        action = request.POST.get("action", "send")  # "send" or "verify"
+        action = request.POST.get("action", "send")
         api_key = request.POST.get("api_key", "").strip()
 
         # Load previous chat from hidden field
@@ -186,13 +185,11 @@ def home(request):
                         if query and "location" not in query:
                             query["location"] = {"address": "Waterloo, ON"}
 
-                        # GPT call succeeded -> key works
                         key_status = "stored"
 
                         # Append assistant reply to history
                         chat.append({"role": "assistant", "content": reply_text})
 
-                        # 🔹 Call Yelp using the structured query from GPT
                         restaurants = []
                         if query:
                             restaurants = yelp_backend.find_dinner(query)
@@ -216,16 +213,15 @@ def home(request):
                         key_status = "no_key"
 
 
-    # If we didn't explicitly set key_status but we have a key and no error, treat it as stored
+    # If didn't set key_status but we have a key and no error, treat it as stored
     if request.method == "POST" and key_status == "no_key" and api_key and not error:
         key_status = "stored"
 
-    # Prepare JSON strings for hidden field and map
     chat_json = json.dumps(chat)
     restaurants_json = mark_safe(json.dumps(restaurants))
 
     # Map center: default or first restaurant
-    center = {"lat": 43.6532, "lng": -79.3832}  # Toronto default
+    center = {"lat": 43.4643, "lng": -80.5204}
     if restaurants:
         first = restaurants[0]
         center["lat"] = first.get("lat", center["lat"])
@@ -240,6 +236,6 @@ def home(request):
         "error": error,
         "verify_message": verify_message,
         "key_status": key_status,
-        "api_key": api_key,  # keeps the password field filled (masked)
+        "api_key": api_key,
     }
     return render(request, "dinner/home.html", context)
