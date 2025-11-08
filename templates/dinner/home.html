@@ -1,0 +1,181 @@
+{% extends "dinner/base.html" %}
+{% block title %}What to Eat – Chat Agent{% endblock %}
+
+{% block content %}
+<div class="grid">
+  <!-- Left: chat -->
+    <section class="card">
+      <h2 style="margin-top:0;">Dinner chat</h2>
+
+      {% if error %}
+        <p style="color:#b00020; font-size:13px;">{{ error }}</p>
+      {% endif %}
+
+      {% if verify_message %}
+        <p style="color:#00796b; font-size:13px;">{{ verify_message }}</p>
+      {% endif %}
+
+      {% if key_status == "stored" %}
+    {#    <p style="color:#00796b; font-size:12px; margin-top:0; margin-bottom:6px;">#}
+    {#      ✅ API key stored for this session.#}
+    {#    </p>#}
+      {% else %}
+        <p style="color:#555; font-size:12px; margin-top:0; margin-bottom:6px;">
+          Paste your OpenAI API key (starting with <code>sk-</code>) so the AI can answer.
+        </p>
+      {% endif %}
+
+      <form method="post" style="margin-bottom:10px;">
+        {% csrf_token %}
+
+        <label>OpenAI API key</label>
+        <input type="password" name="api_key" placeholder="sk-..." value="{{ api_key }}" />
+
+        <!-- keep conversation memory in a hidden field -->
+        <input type="hidden" name="chat_json" value="{{ chat_json|escape }}" />
+
+        <div style="margin-top:4px; margin-bottom:10px;">
+          <button type="submit" name="action" value="verify"
+                  style="padding:6px 12px; border-radius:999px; border:none; background:#1976d2; color:white; cursor:pointer; margin-right:6px;">
+            Verify API key
+          </button>
+        </div>
+
+        <div class="chat-log">
+          {% if chat %}
+            {% for m in chat %}
+              <div class="msg {% if m.role == 'user' %}msg-user{% else %}msg-assistant{% endif %}">
+                <strong>{% if m.role == 'user' %}You{% else %}AI{% endif %}:</strong>
+                <br/>
+                {{ m.content|linebreaksbr }}
+              </div>
+            {% endfor %}
+          {% else %}
+            <p style="font-size:13px; color:#666;">
+              After verifying your API key, tell the AI what you're in the mood for,
+              e.g. "I'm in Waterloo and want something spicy but cheap."
+            </p>
+          {% endif %}
+        </div>
+
+        <label>Your message</label>
+        <textarea name="message" rows="3" placeholder="Describe what you feel like eating..."></textarea>
+
+        <div style="margin-top:6px;">
+          <button type="submit" name="action" value="send">
+            Send
+          </button>
+        </div>
+      </form>
+
+      {# 🔹 Restaurant cards below the chatbox #}
+      {% if restaurants %}
+        <h3 style="margin-top:16px; margin-bottom:8px;">Suggested places</h3>
+        <div class="restaurant-list">
+          {% for r in restaurants %}
+            <article class="restaurant-card"
+                     style="border:1px solid #eee; border-radius:8px; padding:8px 10px; margin-bottom:8px; font-size:13px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <strong style="font-size:14px;">{{ r.name }}</strong><br/>
+                  {% if r.categories %}
+                    <span style="color:#666;">
+                      {{ r.categories|join:", " }}
+                    </span>
+                  {% endif %}
+                </div>
+                <div style="text-align:right;">
+                  {% if r.rating %}
+                    <span style="font-weight:bold;">⭐ {{ r.rating }}</span>
+                  {% endif %}
+                  {% if r.review_count %}
+                    <span style="color:#777;"> ({{ r.review_count }} reviews)</span>
+                  {% endif %}
+                  {% if r.price %}
+                    <div style="color:#444;">{{ r.price }}</div>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if r.address %}
+                <div style="margin-top:4px; color:#555;">
+                  {{ r.address }}
+                </div>
+              {% endif %}
+
+              <div style="margin-top:4px; color:#777;">
+                {% if r.distance_km %}
+                  ~ {{ r.distance_km }} km away
+                {% endif %}
+                {% if r.phone %}
+                  · {{ r.phone }}
+                {% endif %}
+              </div>
+
+              {% if r.snippet %}
+                <div style="margin-top:4px; color:#555; font-style:italic;">
+                  “{{ r.snippet }}”
+                </div>
+              {% endif %}
+
+              <div style="margin-top:4px;">
+                {% if r.url %}
+                  <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer"
+                     style="font-size:12px; color:#1976d2; text-decoration:none;">
+                    View on Yelp →
+                  </a>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+
+  <!-- Right: map -->
+  <section class="card">
+    <h2 style="margin-top:0;">Map</h2>
+    <div id="map" style="width:100%; height:500px;"></div>
+
+    {% if restaurants %}
+      <p style="font-size:13px; color:#555; margin-top:8px;">
+        Showing {{ restaurants|length }} place{% if restaurants|length != 1 %}s{% endif %} suggested.
+      </p>
+    {% else %}
+      <p style="font-size:13px; color:#555; margin-top:8px;">
+        Powered by Leaflet & OpenStreetMap
+      </p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const restaurants = {{ restaurants_json|safe }};
+  const centerLat = {{ center.lat }};
+  const centerLng = {{ center.lng }};
+
+  const map = L.map('map').setView([centerLat, centerLng], 13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const markers = [];
+
+  restaurants.forEach((r, idx) => {
+    if (typeof r.lat === 'number' && typeof r.lng === 'number') {
+      const m = L.marker([r.lat, r.lng]).addTo(map);
+      const html = `
+        <strong>${r.name ?? "Place"}</strong><br/>
+        ${(r.cuisine ?? "")} ${(r.price ?? "")}<br/>
+        <small>${r.address ?? ""}</small>
+      `;
+      m.bindPopup(html);
+      markers.push(m);
+    }
+  });
+</script>
+{% endblock %}
